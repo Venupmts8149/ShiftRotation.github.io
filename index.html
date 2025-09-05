@@ -97,13 +97,23 @@
 
   <!-- Upload and prepare CSV -->
   <div class="row">
-    <h3>2) Upload Filled Template (then press Download CSV)</h3>
+    <h3>2) Upload Filled Template</h3>
     <input id="inputFile" type="file" accept=".xlsx,.xls" />
+    <label style="margin-left:18px;">
+      <input type="checkbox" id="onlySundays" />
+      Only Sundays
+    </label>
     <button id="downloadCsvBtn" disabled>Download CSV</button>
     <!-- Yellow flashing CSV note (3s) -->
     <span id="csvWarning" aria-live="polite">⚠️ !!Do not open the CSV file in Excel — use Notepad if you want to view the details!!</span>
     <div id="status" class="small"></div>
     <div class="note">After upload, the file is parsed and CSVs are prepared in memory. Click "Download CSV" to save the normal CSV. If "Are you updating..." is checked, you will be prompted to save the update CSV as well.</div>
+    <a href="https://hcm-ap20.hr.cloud.sap/xi/ui/genericobject/pages/mdf/importExport.xhtml?&_s.crb=jyO4DQlIgArRVSsH8EIYyk5%2bw6OxVNKu91hmMXt%2fQnA%3d" 
+       target="_blank" 
+       rel="noopener noreferrer" 
+       style="color:#0a66c2; text-decoration:underline; display:block; margin-top:8px;">
+       Shift Import and Export
+    </a>
   </div>
 
   <!-- Red delete-warning -->
@@ -173,8 +183,6 @@ function parseTemplateHeaderDate(text) {
   // ^ (Fixed below to correct months) — see next line:
 }
 
-</script>
-<script>
 /* Correct month map (the above block is left intact to avoid removing code; we re-define safely here) */
 function parseTemplateHeaderDate(text) {
   if (!text) return null;
@@ -413,6 +421,8 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
         const userId = (row[1] || '').toString().trim(); // EmployeeCode (Column B)
         if (!userId) continue;
 
+        const onlySundays = document.getElementById('onlySundays').checked;
+
         for (let i = 0; i < dateObjs.length; i++) {
           const dateObj = dateObjs[i];
           if (!dateObj) continue;
@@ -424,16 +434,21 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
           if (!allowedDayModels.includes(shiftCode)) {
             alert(`Invalid shift code "${cellValRaw}" for user "${userId}" on date "${dateHeaders[i]}". Allowed: GENERAL, WO, B, A, C.\nCSV generation aborted.`);
             evt.target.value = '';
-            prepared = { normalRows:null, updateRows:null, normalCSV:null, updateCSV:null, normalDefaultName:null, updateDefaultName:null };
+            prepared = { normalRows: null, updateRows: null, normalCSV: null, updateCSV: null, normalDefaultName: null, updateDefaultName: null };
             document.getElementById('downloadCsvBtn').disabled = true;
             updateDeleteWarningVisibility();
             return;
           }
 
-          // NEW: Skip GENERAL shift entirely (no rows in either CSV)
+          // Skip GENERAL shift entirely
           if (shiftCode === 'GENERAL') {
             skippedGeneral++;
             continue;
+          }
+
+          // Filter for Sundays if "Only Sundays" checkbox is checked
+          if (onlySundays && dateObj.getDay() !== 0) {
+            continue; // Skip non-Sundays
           }
 
           const formattedDateCSV = mmddyyyy(dateObj); // MM/DD/YYYY
@@ -484,7 +499,7 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
       const now = new Date();
       const base = `${document.getElementById('siteName').value.trim() || 'Site'}_ShiftRotation_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_SFUpload`;
       const defName = `${base}.csv`;
-      const updateName = `update_${base}(delete).csv`;
+      const updateName = `delete_${base}(update).csv`;
 
       // Store
       prepared.normalRows = normalRows;
@@ -499,7 +514,28 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
 
       // NEW: Append info about GENERAL cells skipped (adds line, doesn't replace)
       if (skippedGeneral > 0) {
-        document.getElementById('status').textContent += ` (skipped ${skippedGeneral} GENERAL cell${skippedGeneral>1?'s':''})`;
+        document.getElementById('status').textContent += ` (skipped ${skippedGeneral} GENERAL cell${skippedGeneral>1?'s':''}`;
+      }
+
+      // NEW: Count and report skipped non-Sunday days if applicable
+      let skippedDays = 0; // Track skipped days (non-Sundays)
+      for (let i = 0; i < dateObjs.length; i++) {
+        const dateObj = dateObjs[i];
+        if (!dateObj) continue;
+
+        // Count skipped days if "Only Sundays" is checked
+        if (onlySundays && dateObj.getDay() !== 0) {
+          skippedDays++;
+          continue;
+        }
+      }
+
+      if (skippedGeneral > 0 || skippedDays > 0) {
+        document.getElementById('status').textContent += ` (skipped ${skippedGeneral} GENERAL cell${skippedGeneral > 1 ? 's' : ''}`;
+        if (skippedDays > 0) {
+          document.getElementById('status').textContent += `, ${skippedDays} non-Sunday day${skippedDays > 1 ? 's' : ''}`;
+        }
+        document.getElementById('status').textContent += `)`;
       }
 
       updateDeleteWarningVisibility();
@@ -515,6 +551,124 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
   };
   reader.readAsArrayBuffer(file);
 });
+
+document.getElementById('onlySundays').addEventListener('change', function() {
+  const fileInput = document.getElementById('inputFile');
+  const file = fileInput.files[0];
+
+  if (!file) {
+    alert('Please upload a file first.');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+
+      const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+
+      if (allRows.length < 3) {
+        alert('Template appears empty or invalid (must contain title, header row and at least one data row).');
+        return;
+      }
+
+      const headersRow = allRows[1];
+      if (!headersRow || headersRow.length < 4) {
+        alert('Template header row is missing or incomplete (need at least D2 onward dates).');
+        return;
+      }
+
+      const firstDateColIndex = 3; // Column D (0-based)
+      const dateHeaders = headersRow.slice(firstDateColIndex);
+      const dateObjs = dateHeaders.map(h => parseTemplateHeaderDate(h));
+
+      const allowedDayModels = ['GENERAL', 'WO', 'B', 'A', 'C'];
+
+      const normalRows = [
+        ['[OPERATOR]', 'userId', 'startDate', 'endDate', 'workSchedule.externalCode', 'comment', 'dayModel.externalCode', 'externalCode', 'category', 'holidayCalendar.externalCode'],
+        ['Supported operators: Delimit, Clear and Delete', 'User', 'Start Date', 'End Date', 'Work Schedule.External Code', 'Comment', 'Work Schedule Day Model.External Code', 'External Code', 'Category (Valid values: WORK_SCHEDULE / HOLIDAY_CALENDAR)', 'Holiday Calendar.External Code']
+      ];
+
+      const updateRows = normalRows.map(r => r.slice());
+
+      const onlySundays = document.getElementById('onlySundays').checked;
+
+      for (let r = 2; r < allRows.length; r++) {
+        const row = allRows[r];
+        if (!row || row.length === 0) continue;
+
+        const userId = (row[1] || '').toString().trim();
+        if (!userId) continue;
+
+        for (let i = 0; i < dateObjs.length; i++) {
+          const dateObj = dateObjs[i];
+          if (!dateObj) continue;
+
+          // Filter for Sundays if "Only Sundays" checkbox is checked
+          if (onlySundays && dateObj.getDay() !== 0) {
+            continue; // Skip non-Sundays
+          }
+
+          const cellValRaw = (row[firstDateColIndex + i] || '').toString().trim();
+          if (!cellValRaw) continue;
+
+          const shiftCode = cellValRaw.toUpperCase();
+          if (!allowedDayModels.includes(shiftCode)) {
+            alert(`Invalid shift code "${cellValRaw}" for user "${userId}" on date "${dateHeaders[i]}". Allowed: GENERAL, WO, B, A, C.\nCSV generation aborted.`);
+            return;
+          }
+
+          const formattedDateCSV = mmddyyyy(dateObj);
+          const perDayDigits = digitsOnly(formattedDateCSV);
+          const externalCode = `${userId}${perDayDigits}${perDayDigits}`;
+
+          normalRows.push([
+            '', userId, formattedDateCSV, formattedDateCSV, '', '', shiftCode, externalCode, '', ''
+          ]);
+
+          updateRows.push([
+            'Delete', userId, formattedDateCSV, formattedDateCSV, '', '', '', externalCode, '', ''
+          ]);
+        }
+      }
+
+      if (normalRows.length <= 2) {
+        alert('No data rows found to export (are the daily shift cells filled?).');
+        return;
+      }
+
+      const normalCSV = arrayToCSV(normalRows);
+      const updateCSV = arrayToCSV(updateRows);
+
+      const now = new Date();
+      const base = `${document.getElementById('siteName').value.trim() || 'Site'}_ShiftRotation_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_SFUpload`;
+      const defName = `${base}.csv`;
+      const updateName = `delete_${base}(update).csv`;
+
+      prepared.normalRows = normalRows;
+      prepared.updateRows = updateRows;
+      prepared.normalCSV = normalCSV;
+      prepared.updateCSV = updateCSV;
+      prepared.normalDefaultName = defName;
+      prepared.updateDefaultName = updateName;
+
+      document.getElementById('downloadCsvBtn').disabled = false;
+      document.getElementById('status').textContent = `Prepared CSV with ${normalRows.length - 2} data rows. Click "Download CSV" to save.`;
+
+      updateDeleteWarningVisibility();
+    } catch (err) {
+      console.error(err);
+      alert('Unexpected error while parsing the file. See console for details.');
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+});
+
 
 /* ---------------------- Update checkbox listener ---------------------- */
 document.getElementById('updateMode').addEventListener('change', function() {
