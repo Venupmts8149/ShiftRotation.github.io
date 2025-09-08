@@ -439,22 +439,27 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
           const shiftCode = cellValRaw.toUpperCase();
           if (!allowedDayModels.includes(shiftCode)) {
             alert(`Invalid shift code "${cellValRaw}" for user "${userId}" on date "${dateHeaders[i]}". Allowed: GENERAL, WO, B, A, C.\nCSV generation aborted.`);
-            evt.target.value = '';
-            prepared = { normalRows: null, updateRows: null, normalCSV: null, updateCSV: null, normalDefaultName: null, updateDefaultName: null };
-            document.getElementById('downloadCsvBtn').disabled = true;
-            updateDeleteWarningVisibility();
             return;
           }
 
-          // Skip GENERAL shift entirely
-          if (shiftCode === 'GENERAL') {
+          // NEW: always skip WO on Sundays
+          if (dateObj.getDay() === 0 && shiftCode === 'WO') {
+            continue;
+          }
+
+          // Use the same logic as the upload handler:
+          // - Always include GENERAL on Sundays
+          // - Skip GENERAL on other days
+          if (shiftCode === 'GENERAL' && dateObj.getDay() === 0) {
+            // include
+          } else if (shiftCode === 'GENERAL') {
             skippedGeneral++;
             continue;
           }
 
-          // Filter for Sundays if "Only Sundays" checkbox is checked
+          // Skip non-Sundays only if "Only Sundays" checkbox is checked
           if (onlySundays && dateObj.getDay() !== 0) {
-            continue; // Skip non-Sundays
+            continue;
           }
 
           const formattedDateCSV = mmddyyyy(dateObj); // MM/DD/YYYY
@@ -559,6 +564,9 @@ document.getElementById('inputFile').addEventListener('change', function(evt) {
 });
 
 document.getElementById('onlySundays').addEventListener('change', function() {
+  // reset the counter when re-preparing
+  skippedGeneral = 0;
+
   const fileInput = document.getElementById('inputFile');
   const file = fileInput.files[0];
 
@@ -623,8 +631,17 @@ document.getElementById('onlySundays').addEventListener('change', function() {
             return;
           }
 
-          // Always skip GENERAL shift
-          if (shiftCode === 'GENERAL') {
+          // NEW: always skip WO on Sundays
+          if (dateObj.getDay() === 0 && shiftCode === 'WO') {
+            continue;
+          }
+
+          // Use the same logic as the upload handler:
+          // - Always include GENERAL on Sundays
+          // - Skip GENERAL on other days
+          if (shiftCode === 'GENERAL' && dateObj.getDay() === 0) {
+            // include
+          } else if (shiftCode === 'GENERAL') {
             skippedGeneral++;
             continue;
           }
@@ -670,6 +687,11 @@ document.getElementById('onlySundays').addEventListener('change', function() {
 
       document.getElementById('downloadCsvBtn').disabled = false;
       document.getElementById('status').textContent = `Prepared CSV with ${normalRows.length - 2} data rows. Click "Download CSV" to save.`;
+
+      // show skippedGeneral if any
+      if (skippedGeneral > 0) {
+        document.getElementById('status').textContent += ` (skipped ${skippedGeneral} GENERAL cell${skippedGeneral>1?'s':''})`;
+      }
 
       updateDeleteWarningVisibility();
     } catch (err) {
