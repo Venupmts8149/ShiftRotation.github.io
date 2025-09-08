@@ -114,6 +114,12 @@
        style="color:#0a66c2; text-decoration:underline; display:block; margin-top:8px;">
        Shift Import and Export
     </a>
+    <a href="https://hcm-ap20.hr.cloud.sap/xi/ui/genericobject/pages/mdf/mdf.xhtml?&_s.crb=Gc%2fNMKajvC6inlfDxlF7N6I2gLNURB7Fg0xz9yoMBDo%3d#t=TemporaryTimeInformation&n=1" 
+       target="_blank" 
+       rel="noopener noreferrer" 
+       style="color:#0a66c2; text-decoration:underline; display:block; margin-top:8px;">
+       For an Individual Employee
+    </a>
   </div>
 
   <!-- Red delete-warning -->
@@ -608,11 +614,6 @@ document.getElementById('onlySundays').addEventListener('change', function() {
           const dateObj = dateObjs[i];
           if (!dateObj) continue;
 
-          // Filter for Sundays if "Only Sundays" checkbox is checked
-          if (onlySundays && dateObj.getDay() !== 0) {
-            continue; // Skip non-Sundays
-          }
-
           const cellValRaw = (row[firstDateColIndex + i] || '').toString().trim();
           if (!cellValRaw) continue;
 
@@ -620,6 +621,17 @@ document.getElementById('onlySundays').addEventListener('change', function() {
           if (!allowedDayModels.includes(shiftCode)) {
             alert(`Invalid shift code "${cellValRaw}" for user "${userId}" on date "${dateHeaders[i]}". Allowed: GENERAL, WO, B, A, C.\nCSV generation aborted.`);
             return;
+          }
+
+          // Always skip GENERAL shift
+          if (shiftCode === 'GENERAL') {
+            skippedGeneral++;
+            continue;
+          }
+
+          // Skip non-Sundays only if "Only Sundays" checkbox is checked
+          if (onlySundays && dateObj.getDay() !== 0) {
+            continue;
           }
 
           const formattedDateCSV = mmddyyyy(dateObj);
